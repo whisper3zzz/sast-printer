@@ -170,7 +170,6 @@ func (s *bitableJobStore) ListTrackableJobs(ctx context.Context) ([]trackableJob
 
 		resp, err := s.client.Bitable.AppTableRecord.List(ctx, reqBuilder.Build())
 		if err != nil {
-			log.Printf("[bitable] list records failed page=%q err=%v", pageToken, err)
 			return nil, fmt.Errorf("bitable list records failed: %w", err)
 		}
 		if resp == nil || !resp.Success() || resp.Data == nil {
@@ -258,7 +257,6 @@ func (s *bitableJobStore) ActiveWarningForPrinter(ctx context.Context, printerID
 
 		resp, err := s.client.Bitable.AppTableRecord.List(ctx, reqBuilder.Build())
 		if err != nil {
-			log.Printf("[bitable] list records failed page=%q err=%v", pageToken, err)
 			return nil, fmt.Errorf("bitable list records failed: %w", err)
 		}
 		if resp == nil || !resp.Success() || resp.Data == nil {
@@ -314,8 +312,7 @@ func (s *bitableJobStore) ActiveWarningForPrinter(ctx context.Context, printerID
 }
 
 func (s *bitableJobStore) ListJobsByUser(ctx context.Context, user feishuUserInfo, limit int) ([]map[string]interface{}, error) {
-	// 为列表操作使用更长的超时时间
-	ctx, cancel := context.WithTimeout(ctx, 3*s.timeout)
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	if limit <= 0 {
@@ -337,7 +334,6 @@ func (s *bitableJobStore) ListJobsByUser(ctx context.Context, user feishuUserInf
 
 		resp, err := s.client.Bitable.AppTableRecord.List(ctx, reqBuilder.Build())
 		if err != nil {
-			log.Printf("[bitable] list records failed page=%q err=%v", pageToken, err)
 			return nil, fmt.Errorf("bitable list records failed: %w", err)
 		}
 		if resp == nil || !resp.Success() || resp.Data == nil {
