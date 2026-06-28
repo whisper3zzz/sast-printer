@@ -687,6 +687,13 @@ func handleBotPrint(cfg *config.Config, values map[string]interface{}, openID st
 		}
 	}
 
+	actionFinalized := false
+	defer func() {
+		if !actionFinalized {
+			releaseBotSessionAction(sessionID)
+		}
+	}()
+
 	printSourcePath := session.SourcePath
 
 	if session.CardID != "" {
@@ -813,6 +820,7 @@ func handleBotPrint(cfg *config.Config, values map[string]interface{}, openID st
 
 		_ = os.Remove(session.SourcePath)
 		deleteBotSession(sessionID)
+		actionFinalized = true
 		return
 	}
 
@@ -850,6 +858,7 @@ func handleBotPrint(cfg *config.Config, values map[string]interface{}, openID st
 	persistBotJob(cfg, jobID, printerID, session.Filename, copies, printPageCount, duplexMode != "off", openID)
 	_ = os.Remove(session.SourcePath)
 	deleteBotSession(sessionID)
+	actionFinalized = true
 	log.Printf("[bot] print job submitted: job_id=%s printer=%s duplex=%s", jobID, printerID, duplexMode)
 
 	duplexLabel := "单面"
