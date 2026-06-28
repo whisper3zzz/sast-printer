@@ -1,0 +1,82 @@
+name: Build Image
+
+permissions:
+  contents: read
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+
+env:
+  SERVICE_NAME: sast-goprint
+  REGISTRY_PREFIX: sast
+  TAR_FILE_NAME: new_image.tar
+  IMAGE_ARTIFACT_NAME: deploy-image
+
+jobs:
+  build:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Resolve image version
+        id: vars
+        run: |
+          sha="${{ github.event.workflow_run.head_sha }}"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "sha_short=${sha::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and export image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: |
+            ${{ env.REGISTRY_PREFIX }}/${{ env.SERVICE_NAME }}:latest
+            ${{ env.REGISTRY_PREFIX }}/${{ env.SERVICE_NAME }}:${{ steps.vars.outputs.sha_short }}
+          outputs: type=docker,dest=./${{ env.TAR_FILE_NAME }}
+
+      - name: Write image metadata
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          metadata = {
+              "service_name": os.environ["SERVICE_NAME"],
+              "image_name": f"{os.environ['REGISTRY_PREFIX']}/{os.environ['SERVICE_NAME']}",
+              "image_tag": "${{ steps.vars.outputs.sha_short }}",
+              "source_sha": "${{ steps.vars.outputs.sha }}",
+              "source_branch": "${{ github.event.workflow_run.head_branch }}",
+              "ci_run_id": "${{ github.event.workflow_run.id }}",
+              "ci_run_url": "${{ github.event.workflow_run.html_url }}",
+              "build_run_id": "${{ github.run_id }}",
+          }
+
+          with open("image-metadata.json", "w", encoding="utf-8") as file:
+              json.dump(metadata, file, indent=2)
+              file.write("\n")
+          PY
+
+      - name: Upload deploy image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMAGE_ARTIFACT_NAME }}
+          path: |
+            ${{ env.TAR_FILE_NAME }}
+            image-metadata.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
