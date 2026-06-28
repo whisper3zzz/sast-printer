@@ -1,20 +1,38 @@
 name: Deploy
 
 permissions:
+  actions: read
   contents: read
 
 on:
   workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Build Image workflow run ID to deploy
+        required: true
+        type: string
 
 env:
   SERVICE_NAME: sast-goprint
   REGISTRY_PREFIX: sast
   TAR_FILE_NAME: new_image.tar
+  IMAGE_ARTIFACT_NAME: deploy-image
 
 jobs:
-  build-and-deploy:
+  validate-deployment:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate deployment input
+        env:
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          set -euo pipefail
+
+          if ! [[ "${BUILD_RUN_ID}" =~ ^[0-9]+$ ]]; then
+            echo "::error::build_run_id must be a numeric GitHub Actions run ID"
+            exit 1
+          fi
+
       - name: Validate deployment secrets
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
@@ -36,25 +54,53 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Get short Git commit hash
-        id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and export to tar
-        uses: docker/build-push-action@v6
+  deploy:
+    runs-on: ubuntu-latest
+    needs: validate-deployment
+    steps:
+      - name: Download built image artifact
+        uses: actions/download-artifact@v4
         with:
-          context: .
-          push: false
-          tags: |
-            ${{ env.REGISTRY_PREFIX }}/${{ env.SERVICE_NAME }}:latest
-            ${{ env.REGISTRY_PREFIX }}/${{ env.SERVICE_NAME }}:${{ steps.vars.outputs.sha_short }}
-          outputs: type=docker,dest=./${{ env.TAR_FILE_NAME }}
+          name: ${{ env.IMAGE_ARTIFACT_NAME }}
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: .
+
+      - name: Read image metadata
+        id: metadata
+        env:
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          set -euo pipefail
+
+          test -s "${TAR_FILE_NAME}"
+          test -s image-metadata.json
+
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import sys
+
+          with open("image-metadata.json", encoding="utf-8") as file:
+              metadata = json.load(file)
+
+          required = ("image_name", "image_tag", "source_sha", "build_run_id")
+          missing = [key for key in required if not metadata.get(key)]
+          if missing:
+              print(f"Missing metadata keys: {', '.join(missing)}", file=sys.stderr)
+              sys.exit(1)
+
+          expected_run_id = os.environ["BUILD_RUN_ID"]
+          if str(metadata["build_run_id"]) != expected_run_id:
+              print(
+                  f"Artifact build_run_id {metadata['build_run_id']} does not match requested {expected_run_id}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print(f"image_tag={metadata['image_tag']}")
+          print(f"source_sha={metadata['source_sha']}")
+          PY
 
       - name: Transfer image to Server
         uses: appleboy/scp-action@v0.1.7
@@ -77,14 +123,15 @@ jobs:
             SERVICE_DIR="/data/${{ env.SERVICE_NAME }}"
             IMAGE_NAME="${{ env.REGISTRY_PREFIX }}/${{ env.SERVICE_NAME }}"
             TAR_FILE="${{ env.TAR_FILE_NAME }}"
-            NEW_VERSION_TAG="${{ steps.vars.outputs.sha_short }}"
+            NEW_VERSION_TAG="${{ steps.metadata.outputs.image_tag }}"
+            SOURCE_SHA="${{ steps.metadata.outputs.source_sha }}"
 
-            cd ${SERVICE_DIR}
+            cd "${SERVICE_DIR}"
 
-            echo "Deploying version: ${NEW_VERSION_TAG}"
+            echo "Deploying version: ${NEW_VERSION_TAG} (${SOURCE_SHA})"
 
             echo "Loading new image from ${TAR_FILE}..."
-            docker load -i ${TAR_FILE}
+            docker load -i "${TAR_FILE}"
 
             echo "Rotating image tags..."
             if docker image inspect "${IMAGE_NAME}:current" >/dev/null 2>&1; then
@@ -102,8 +149,8 @@ jobs:
             docker compose up -d --remove-orphans
 
             echo "Cleaning temporary files and images..."
-            rm ${TAR_FILE}
-            docker rmi "${IMAGE_NAME}:latest"
+            rm "${TAR_FILE}"
+            docker rmi "${IMAGE_NAME}:latest" || true
             docker image prune -f
 
-            echo "Deployment succeeded: ${NEW_VERSION_TAG}"
+            echo "Deployment succeeded: ${NEW_VERSION_TAG} (${SOURCE_SHA})"
