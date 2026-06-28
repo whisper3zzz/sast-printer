@@ -1,0 +1,57 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    paths:
+      - 'api/**'
+      - 'cmd/**'
+      - 'config/**'
+      - 'cups/**'
+      - 'office_converter/**'
+      - 'proto/**'
+      - 'public/**'
+      - 'config.example.yaml'
+      - 'docker-compose.yml'
+      - 'Dockerfile'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'openapi.yaml'
+      - 'main.go'
+      - '.github/workflows/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Go tests
+        run: go test -count=1 ./...
+
+      - name: Compile Python office converter files
+        run: |
+          python3 -m py_compile \
+            office_converter/server.py \
+            office_converter/test_conversion.py \
+            office_converter/office_converter_pb2.py \
+            office_converter/office_converter_pb2_grpc.py
+
+      - name: Check shell scripts
+        run: bash -n office_converter/docker-entrypoint.sh office_converter/run.sh
+
+      - name: Validate Docker Compose config
+        run: docker compose config
