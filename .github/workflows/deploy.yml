@@ -1,28 +1,10 @@
-name: CI/CD with Git Commit Hash Tag
+name: Deploy
 
 permissions:
   contents: read
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'api/**'
-      - 'cmd/**'
-      - 'config/**'
-      - 'cups/**'
-      - 'office_converter/**'
-      - 'proto/**'
-      - 'public/**'
-      - 'config.example.yaml'
-      - 'docker-compose.yml'
-      - 'Dockerfile'
-      - 'go.mod'
-      - 'Makefile'
-      - 'openapi.yaml'
-      - 'main.go'
-      - '.github/workflows/**'
+  workflow_dispatch:
 
 env:
   SERVICE_NAME: sast-goprint
@@ -33,29 +15,49 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate deployment secrets
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for name in SERVER_HOST SERVER_USER SSH_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::${name} repository secret is required for deployment"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "Configure the missing secrets in GitHub repository settings before running Deploy."
+            exit 1
+          fi
+
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Get short Git commit hash
         id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Build and export to tar
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: false
-          # 使用 'latest' 作为临时句柄，并使用 commit hash 作为永久版本标签
           tags: |
             ${{ env.REGISTRY_PREFIX }}/${{ env.SERVICE_NAME }}:latest
             ${{ env.REGISTRY_PREFIX }}/${{ env.SERVICE_NAME }}:${{ steps.vars.outputs.sha_short }}
           outputs: type=docker,dest=./${{ env.TAR_FILE_NAME }}
 
       - name: Transfer image to Server
-        uses: appleboy/scp-action@master
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -64,16 +66,14 @@ jobs:
           target: "/data/${{ env.SERVICE_NAME }}/"
 
       - name: Execute Deployment Script on Server
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            # --- 以下脚本在您的 Debian 服务器上执行 ---
-            set -e # 任何命令失败则立即退出
+            set -e
 
-            # 定义远程服务器上的变量
             SERVICE_DIR="/data/${{ env.SERVICE_NAME }}"
             IMAGE_NAME="${{ env.REGISTRY_PREFIX }}/${{ env.SERVICE_NAME }}"
             TAR_FILE="${{ env.TAR_FILE_NAME }}"
@@ -81,35 +81,29 @@ jobs:
 
             cd ${SERVICE_DIR}
 
-            echo "🚀 部署开始，版本: ${NEW_VERSION_TAG}"
+            echo "Deploying version: ${NEW_VERSION_TAG}"
 
-            echo "📦 从 ${TAR_FILE} 加载新镜像..."
+            echo "Loading new image from ${TAR_FILE}..."
             docker load -i ${TAR_FILE}
 
-            echo "🔄 处理镜像备份与轮换..."
-            # 检查是否存在 'current' 镜像 (当前运行版本)
+            echo "Rotating image tags..."
             if docker image inspect "${IMAGE_NAME}:current" >/dev/null 2>&1; then
-              # 如果已存在 'backup' 镜像，先删除，保证只留一份备份
               if docker image inspect "${IMAGE_NAME}:backup" >/dev/null 2>&1; then
-                echo "  - 发现并删除旧的备份 'backup'..."
                 docker rmi "${IMAGE_NAME}:backup"
               fi
-              # 将当前的 'current' 镜像重命名为 'backup'
-              echo "  - 将 'current' 镜像标记为 'backup'..."
               docker tag "${IMAGE_NAME}:current" "${IMAGE_NAME}:backup"
             else
-              echo "  - 未发现 'current' 镜像，跳过备份 (首次部署)"
+              echo "No current image found; skipping backup."
             fi
 
-            echo "✅ 将新镜像 (${NEW_VERSION_TAG}) 标记为 'current'..."
             docker tag "${IMAGE_NAME}:${NEW_VERSION_TAG}" "${IMAGE_NAME}:current"
 
-            echo "🚀 使用 Docker Compose 启动新服务..."
+            echo "Starting service with Docker Compose..."
             docker compose up -d --remove-orphans
 
-            echo "🧹 清理临时文件和镜像..."
+            echo "Cleaning temporary files and images..."
             rm ${TAR_FILE}
             docker rmi "${IMAGE_NAME}:latest"
             docker image prune -f
 
-            echo "🎉 部署成功！当前运行版本: ${NEW_VERSION_TAG}"
+            echo "Deployment succeeded: ${NEW_VERSION_TAG}"
