@@ -56,6 +56,12 @@ func SetupRouter() *gin.Engine {
 		jobs.POST("", SubmitPrintJob)                            // 提交打印任务
 		jobs.POST("/preview", PreviewConvertedDocument)          // 仅转换并预览文件
 		jobs.POST("/preview/feishu", PreviewFeishuDocument)      // 导出飞书文档并预览 PDF
+		jobs.POST("/previews", CreateUploadPreviewArtifact)      // 创建可复用的预览文件
+		jobs.POST("/previews/feishu", CreateFeishuPreviewArtifact)
+		jobs.GET("/previews/:preview_id/file", DownloadPreviewArtifactFile)
+		jobs.POST("/previews/:preview_id/renders", CreatePreviewArtifactRender)
+		jobs.GET("/previews/:preview_id/renders/:render_id/file", DownloadPreviewArtifactRenderFile)
+		jobs.POST("/from-preview", SubmitPrintJobFromPreview)
 		jobs.POST("/feishu", SubmitFeishuPrintJob)               // 导出飞书文档并打印
 		jobs.GET("/supported-file-types", GetSupportedFileTypes) // 获取当前支持上传的文件类型
 		jobs.GET("", ListPrintJobs)                              // 列出所有打印任务

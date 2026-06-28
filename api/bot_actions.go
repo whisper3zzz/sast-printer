@@ -721,7 +721,7 @@ func handleBotPrint(cfg *config.Config, values map[string]interface{}, openID st
 	// N-up
 	nupCleanup := func() {}
 	if nup > 1 {
-		nupPath, cleanupNup, err := applyNupLayout(printSourcePath, nup)
+		nupPath, cleanupNup, err := applyNupLayout(printSourcePath, nup, "horizontal")
 		if err != nil {
 			log.Printf("[bot] nup: %v", err)
 			_ = sendSessionText(context.Background(), cfg, session, "缩印排版失败")

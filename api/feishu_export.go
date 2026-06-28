@@ -588,7 +588,7 @@ func SubmitFeishuPrintJob(c *gin.Context) {
 
 	nupCleanup := func() {}
 	if nup > 1 {
-		nupPath, cleanupNup, err := applyNupLayout(printSourcePath, nup)
+		nupPath, cleanupNup, err := applyNupLayout(printSourcePath, nup, "horizontal")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "failed to apply nup layout",

@@ -133,7 +133,13 @@ func InitTempDir() error {
 		return fmt.Errorf("failed to read temp dir %s: %w", dir, err)
 	}
 	for _, entry := range entries {
+		if entry.Name() == previewArtifactsDirName {
+			continue
+		}
 		_ = os.RemoveAll(filepath.Join(dir, entry.Name()))
+	}
+	if _, err := newPreviewArtifactStore(getConfig()).cleanupExpired(); err != nil {
+		return fmt.Errorf("failed to clean preview artifacts: %w", err)
 	}
 	return nil
 }

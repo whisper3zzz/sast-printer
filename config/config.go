@@ -87,6 +87,7 @@ type PrintingConfig struct {
 	MaxCopies                int    `yaml:"max_copies"`
 	MaxPDFPages              int    `yaml:"max_pdf_pages"`
 	MaxImagePixels           int    `yaml:"max_image_pixels"`
+	PreviewArtifactTTL       string `yaml:"preview_artifact_ttl"`
 	ManualDuplexHookTTL      string `yaml:"manual_duplex_hook_ttl"`
 	ManualDuplexMinTimeout   string `yaml:"manual_duplex_min_timeout"`
 	ManualDuplexExtendWindow string `yaml:"manual_duplex_extend_window"`
@@ -203,6 +204,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Printing.MaxImagePixels == 0 {
 		cfg.Printing.MaxImagePixels = 50_000_000
+	}
+	if cfg.Printing.PreviewArtifactTTL == "" {
+		cfg.Printing.PreviewArtifactTTL = "30m"
 	}
 	if cfg.Printing.ManualDuplexMinTimeout == "" {
 		cfg.Printing.ManualDuplexMinTimeout = strings.TrimSpace(cfg.Printing.ManualDuplexHookTTL)
@@ -322,6 +326,9 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.Printing.MaxImagePixels <= 0 {
 		return fmt.Errorf("printing.max_image_pixels must be positive")
+	}
+	if _, err := parsePositiveDuration(cfg.Printing.PreviewArtifactTTL, "printing.preview_artifact_ttl"); err != nil {
+		return err
 	}
 	if strings.TrimSpace(cfg.Printing.ManualDuplexHookTTL) != "" {
 		if _, err := parsePositiveDuration(cfg.Printing.ManualDuplexHookTTL, "printing.manual_duplex_hook_ttl"); err != nil {

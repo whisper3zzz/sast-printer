@@ -815,7 +815,7 @@ func parsePagesString(pagesStr string, totalPages int) ([]string, error) {
 	return selectors, nil
 }
 
-func applyNupLayout(sourcePath string, nup int) (string, func(), error) {
+func applyNupLayout(sourcePath string, nup int, direction string) (string, func(), error) {
 	if nup < 2 {
 		return sourcePath, func() {}, nil
 	}
@@ -828,5 +828,9 @@ func applyNupLayout(sourcePath string, nup int) (string, func(), error) {
 		return sourcePath, func() {}, nil
 	}
 
-	return pdfutil.CreateNupPDF(sourcePath, nup, "horizontal", nil, tempDir())
+	direction = strings.ToLower(strings.TrimSpace(direction))
+	if direction != "vertical" {
+		direction = "horizontal"
+	}
+	return pdfutil.CreateNupPDF(sourcePath, nup, direction, nil, tempDir())
 }

@@ -71,6 +71,9 @@ printing:
   max_pdf_pages: 500
   # Max decoded image pixels for jpg/png to PDF conversion.
   max_image_pixels: 50000000
+  # Short-lived server-side preview artifacts used to avoid uploading/exporting
+  # the same document again when printing after preview.
+  preview_artifact_ttl: 30m
   # Minimum manual duplex hook expiration; actual timeout is max(this value,
   # printed page count * the printer's manual_duplex_per_page_timeout).
   manual_duplex_min_timeout: 10m
