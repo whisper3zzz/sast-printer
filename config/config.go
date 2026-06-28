@@ -36,6 +36,14 @@ type ServerConfig struct {
 type AuthConfig struct {
 	Enabled bool             `yaml:"enabled"`
 	Feishu  FeishuAuthConfig `yaml:"feishu"`
+	Session SessionConfig    `yaml:"session"`
+}
+
+// SessionConfig 浏览器会话 Cookie 配置
+type SessionConfig struct {
+	Secret        string `yaml:"secret"`
+	Secure        *bool  `yaml:"secure"`
+	MaxAgeSeconds int    `yaml:"max_age_seconds"`
 }
 
 // SaneAPIConfig scanservjs 反向代理配置
@@ -248,6 +256,13 @@ func applyDefaults(cfg *Config) {
 	if cfg.Auth.Feishu.TokenCacheTTL == "" {
 		cfg.Auth.Feishu.TokenCacheTTL = "2m"
 	}
+	if cfg.Auth.Session.MaxAgeSeconds == 0 {
+		cfg.Auth.Session.MaxAgeSeconds = 86400 * 7
+	}
+	if cfg.Auth.Session.Secure == nil {
+		secure := cfg.Auth.Enabled
+		cfg.Auth.Session.Secure = &secure
+	}
 	if cfg.SaneAPI.TargetURL == "" {
 		cfg.SaneAPI.TargetURL = "http://192.168.101.37:8080"
 	}
@@ -323,12 +338,22 @@ func validateConfig(cfg *Config) error {
 		if strings.TrimSpace(cfg.Auth.Feishu.AppSecret) == "" {
 			return fmt.Errorf("auth.feishu.app_secret is required when auth.enabled=true")
 		}
+		sessionSecret := strings.TrimSpace(cfg.Auth.Session.Secret)
+		if sessionSecret == "" {
+			return fmt.Errorf("auth.session.secret is required when auth.enabled=true")
+		}
+		if len([]byte(sessionSecret)) < 32 {
+			return fmt.Errorf("auth.session.secret must be at least 32 bytes when auth.enabled=true")
+		}
 		if _, err := parsePositiveDuration(cfg.Auth.Feishu.RequestTimeout, "auth.feishu.request_timeout"); err != nil {
 			return err
 		}
 		if _, err := parsePositiveDuration(cfg.Auth.Feishu.TokenCacheTTL, "auth.feishu.token_cache_ttl"); err != nil {
 			return err
 		}
+	}
+	if cfg.Auth.Session.MaxAgeSeconds <= 0 {
+		return fmt.Errorf("auth.session.max_age_seconds must be positive")
 	}
 
 	if cfg.JobStore.Enabled {

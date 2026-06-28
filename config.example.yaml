@@ -10,6 +10,15 @@ server:
 auth:
   # Enable authentication for all API endpoints except /health.
   enabled: false
+  session:
+    # Required when auth.enabled=true. Use a high-entropy value, for example:
+    #   openssl rand -hex 32
+    # The service derives signed+encrypted cookie keys from this secret.
+    secret: ""
+    # Set true in HTTPS deployments. Keep false only for local HTTP development.
+    secure: false
+    # Browser session max age in seconds.
+    max_age_seconds: 604800
   feishu:
     # Feishu app credentials from Open Platform.
     app_id: cli_xxx

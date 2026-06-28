@@ -435,6 +435,10 @@ server:
 
 auth:
     enabled: true
+    session:
+        secret: "至少 32 字节的高熵随机字符串"
+        secure: true
+        max_age_seconds: 604800
     feishu:
         app_id: cli_xxxxxxxxxxxx
         app_secret: your_app_secret
@@ -533,6 +537,9 @@ printers:
 ### Auth
 
 - `auth.enabled`：是否启用飞书 OAuth 鉴权（默认 `false`）
+- `auth.session.secret`：启用鉴权时必填，至少 32 字节；服务会用它派生签名和加密 Cookie 密钥，可用 `openssl rand -hex 32` 生成
+- `auth.session.secure`：是否给会话 Cookie 添加 `Secure` 属性；HTTPS 生产部署应设置为 `true`，本地 HTTP 调试可显式设为 `false`
+- `auth.session.max_age_seconds`：会话 Cookie 有效期，默认 `604800`（7 天）
 - `auth.feishu.app_id`：飞书自建应用的 App ID
 - `auth.feishu.app_secret`：飞书自建应用的 App Secret
 - `auth.feishu.redirect_uri`：OAuth 回调地址

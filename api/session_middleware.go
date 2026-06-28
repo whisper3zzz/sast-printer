@@ -1,11 +1,15 @@
 package api
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/gob"
 	"fmt"
 	"goprint/config"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/sessions"
@@ -19,6 +23,8 @@ const (
 	sessionKeyToken = "token"
 )
 
+var fallbackSessionSecret = randomSessionSecret()
+
 func init() {
 	// Register types for gob encoding/decoding in cookie sessions
 	gob.Register(feishuUserInfo{})
@@ -26,21 +32,56 @@ func init() {
 
 // SetupSessionMiddleware configures session store and returns middleware
 func SetupSessionMiddleware(cfg *config.Config) gin.HandlerFunc {
-	// Use cookie store for session storage
-	// In production, consider using Redis: github.com/gin-contrib/sessions/redis
-	secret := []byte("change-this-secret-in-production") // TODO: move to config
-	store := cookie.NewStore(secret)
+	hashKey, blockKey := sessionCookieKeys(cfg)
+	store := cookie.NewStore(hashKey, blockKey)
 
-	// Configure session options
 	store.Options(sessions.Options{
 		Path:     "/",
-		MaxAge:   86400 * 7, // 7 days
-		HttpOnly: true,      // Prevent XSS
-		Secure:   false,     // Set to true in production with HTTPS
+		MaxAge:   sessionMaxAge(cfg),
+		HttpOnly: true,
+		Secure:   sessionCookieSecure(cfg),
 		SameSite: http.SameSiteLaxMode,
 	})
 
 	return sessions.Sessions(sessionName, store)
+}
+
+func sessionCookieKeys(cfg *config.Config) ([]byte, []byte) {
+	secret := fallbackSessionSecret
+	if cfg != nil {
+		if configured := strings.TrimSpace(cfg.Auth.Session.Secret); configured != "" {
+			secret = configured
+		}
+	}
+
+	hashKey := sha256.Sum256([]byte("goprint session hash key\n" + secret))
+	blockKey := sha256.Sum256([]byte("goprint session block key\n" + secret))
+	return hashKey[:], blockKey[:]
+}
+
+func randomSessionSecret() string {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		panic(fmt.Sprintf("failed to generate fallback session secret: %v", err))
+	}
+	return base64.StdEncoding.EncodeToString(buf)
+}
+
+func sessionMaxAge(cfg *config.Config) int {
+	if cfg != nil && cfg.Auth.Session.MaxAgeSeconds > 0 {
+		return cfg.Auth.Session.MaxAgeSeconds
+	}
+	return 86400 * 7
+}
+
+func sessionCookieSecure(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if cfg.Auth.Session.Secure != nil {
+		return *cfg.Auth.Session.Secure
+	}
+	return cfg.Auth.Enabled
 }
 
 // SessionAuthRequired validates session-based authentication
@@ -87,9 +128,14 @@ func SessionAuthRequired() gin.HandlerFunc {
 			return
 		}
 
+		tokenStr := ""
+
 		// Optional: re-validate token with Feishu if needed
 		tokenRaw := session.Get(sessionKeyToken)
-		if tokenStr, ok := tokenRaw.(string); ok && tokenStr != "" {
+		if rawTokenStr, ok := tokenRaw.(string); ok {
+			tokenStr = strings.TrimSpace(rawTokenStr)
+		}
+		if tokenStr != "" {
 			// Validate token freshness
 			if validatedUser, err := validateFeishuToken(tokenStr, cfg); err == nil {
 				// Update session with fresh user data
@@ -107,6 +153,9 @@ func SessionAuthRequired() gin.HandlerFunc {
 
 		c.Set("auth_provider", "feishu")
 		c.Set("auth_user", userData)
+		if tokenStr != "" {
+			c.Set("auth_token", tokenStr)
+		}
 		log.Printf("[auth][session] auth success method=%s path=%s ip=%s open_id=%s cost=%s",
 			method, path, clientIP, maskSensitive(userData.OpenID), time.Since(start))
 		c.Next()
