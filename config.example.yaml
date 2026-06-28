@@ -95,6 +95,8 @@ office_conversion:
   request_timeout: 60s
   # Shared converted-file path. Go reads converted PDF from here.
   output_dir: /tmp/office-output
+  # Converted source/PDF cache max age. Set 0 to disable cache cleanup.
+  cache_max_age: 168h
 
 printers:
   # Example 1: visible in frontend printer list
