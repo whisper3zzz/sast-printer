@@ -117,11 +117,9 @@ COPY office_converter/office_converter_pb2.py ./office_converter_pb2.py
 COPY office_converter/office_converter_pb2_grpc.py ./office_converter_pb2_grpc.py
 COPY office_converter/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY office_converter/dummy.conf /etc/X11/dummy.conf
-COPY office_converter/assets/Office.conf /root/.config/Kingsoft/Office.conf
-COPY office_converter/assets/fonts/ /usr/local/share/fonts/custom/
 
-RUN python3 -c "import ctypes; ctypes.CDLL('libQt5Core.so.5'); ctypes.CDLL('libQt5Gui.so.5'); print('qt runtime ok')" && \
-    mkdir -p /root/.config/Kingsoft && \
+RUN mkdir -p /root/.config/Kingsoft /usr/local/share/fonts/custom && \
+    python3 -c "import ctypes; ctypes.CDLL('libQt5Core.so.5'); ctypes.CDLL('libQt5Gui.so.5'); print('qt runtime ok')" && \
     pip3 install --no-cache-dir -r requirements.txt --break-system-packages && \
     fc-cache -fv && \
     chmod +x /usr/local/bin/docker-entrypoint.sh

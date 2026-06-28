@@ -26,4 +26,8 @@ if [ -f /app/Office.conf ] && [ ! -f /root/.config/Kingsoft/Office.conf ]; then
   cp /app/Office.conf /root/.config/Kingsoft/Office.conf
 fi
 
+if [ -d /usr/local/share/fonts/custom ]; then
+  fc-cache -f /usr/local/share/fonts/custom >/tmp/fc-cache-custom.log 2>&1 || true
+fi
+
 exec "$@"
