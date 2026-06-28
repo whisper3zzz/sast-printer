@@ -102,6 +102,7 @@ type OfficeConversionConfig struct {
 	GRPCAddress     string   `yaml:"grpc_address"`
 	RequestTimeout  string   `yaml:"request_timeout"`
 	OutputDir       string   `yaml:"output_dir"`
+	CacheMaxAge     string   `yaml:"cache_max_age"`
 }
 
 // PrinterConfig 单台打印机配置
@@ -240,6 +241,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.OfficeConversion.OutputDir == "" {
 		cfg.OfficeConversion.OutputDir = "/tmp/office-output"
+	}
+	if cfg.OfficeConversion.CacheMaxAge == "" {
+		cfg.OfficeConversion.CacheMaxAge = "168h"
 	}
 	if cfg.Auth.Feishu.UserInfoURL == "" {
 		cfg.Auth.Feishu.UserInfoURL = "https://open.feishu.cn/open-apis/authen/v1/user_info"
@@ -395,6 +399,12 @@ func validateConfig(cfg *Config) error {
 			if _, err := os.Stat(filepath.Clean(cfg.OfficeConversion.ServiceScript)); err != nil {
 				return fmt.Errorf("office_conversion.service_script is not accessible: %w", err)
 			}
+		}
+	}
+	if strings.TrimSpace(cfg.OfficeConversion.CacheMaxAge) != "" {
+		cacheMaxAge, err := time.ParseDuration(strings.TrimSpace(cfg.OfficeConversion.CacheMaxAge))
+		if err != nil || cacheMaxAge < 0 {
+			return fmt.Errorf("invalid office_conversion.cache_max_age: %s", cfg.OfficeConversion.CacheMaxAge)
 		}
 	}
 

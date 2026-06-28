@@ -71,6 +71,7 @@ func main() {
 	if err := api.InitTempDir(); err != nil {
 		log.Printf("Warning: failed to initialize temp directory: %v", err)
 	}
+	api.InitOfficeCacheCleaner(cfg)
 
 	if _, err := maybeStartOfficeConverter(rootCtx, cfg); err != nil {
 		log.Fatalf("Failed to start office converter service: %v", err)

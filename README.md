@@ -480,6 +480,7 @@ office_conversion:
         - pptx
     request_timeout: 60s
     output_dir: /tmp/office-output
+    cache_max_age: 168h
 
 bot:
     enabled: false
@@ -587,6 +588,7 @@ printers:
 - `office_conversion.accepted_formats`：支持的 Office 文件扩展名列表
 - `office_conversion.request_timeout`：转换请求超时（默认 `60s`）
 - `office_conversion.output_dir`：转换输出目录（默认 `/tmp/office-output`）
+- `office_conversion.cache_max_age`：转换缓存保留时间（默认 `168h`）；设置为 `0` 可关闭缓存清理
 
 ### Bot
 
