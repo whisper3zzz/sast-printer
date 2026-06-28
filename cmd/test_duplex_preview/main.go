@@ -18,7 +18,7 @@ func findPrinter(cfg *config.Config, id string) (config.PrinterConfig, bool) {
 }
 
 func runCase(sourcePath string, printerCfg config.PrinterConfig, copies int, collate bool, label string) error {
-	firstPath, secondPath, cleanup, err := api.BuildManualDuplexPreview(sourcePath, printerCfg, copies, collate)
+	firstPath, secondPath, cleanup, err := api.BuildManualDuplexPreview(sourcePath, printerCfg, "long-edge", copies, collate)
 	if err != nil {
 		return err
 	}
