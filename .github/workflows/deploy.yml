@@ -5,12 +5,19 @@ permissions:
   contents: read
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: Build Image workflow run ID to deploy
+        description: Build Image workflow run ID to deploy manually
         required: true
         type: string
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 env:
   SERVICE_NAME: sast-goprint
@@ -19,20 +26,9 @@ env:
   IMAGE_ARTIFACT_NAME: deploy-image
 
 jobs:
-  validate-deployment:
+  validate-deployment-secrets:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate deployment input
-        env:
-          BUILD_RUN_ID: ${{ inputs.build_run_id }}
-        run: |
-          set -euo pipefail
-
-          if ! [[ "${BUILD_RUN_ID}" =~ ^[0-9]+$ ]]; then
-            echo "::error::build_run_id must be a numeric GitHub Actions run ID"
-            exit 1
-          fi
-
       - name: Validate deployment secrets
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
@@ -54,22 +50,109 @@ jobs:
             exit 1
           fi
 
+  resolve-deployment:
+    runs-on: ubuntu-latest
+    outputs:
+      build_run_id: ${{ steps.resolve.outputs.build_run_id }}
+      deploy_ref: ${{ steps.resolve.outputs.deploy_ref }}
+      expected_source_sha: ${{ steps.resolve.outputs.expected_source_sha }}
+    steps:
+      - name: Checkout tag commit
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag commit is on main
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not reachable from main"
+            exit 1
+          fi
+
+      - name: Resolve Build Image run
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          TAG_NAME: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            if ! [[ "${INPUT_BUILD_RUN_ID}" =~ ^[0-9]+$ ]]; then
+              echo "::error::build_run_id must be a numeric GitHub Actions run ID"
+              exit 1
+            fi
+
+            echo "build_run_id=${INPUT_BUILD_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "deploy_ref=manual:${INPUT_BUILD_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "expected_source_sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${EVENT_NAME}" != "push" ]; then
+            echo "::error::Unsupported deploy event: ${EVENT_NAME}"
+            exit 1
+          fi
+
+          echo "Resolving Build Image artifact for ${TAG_NAME} (${SOURCE_SHA})..."
+          for attempt in $(seq 1 20); do
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/build-image.yml/runs?event=workflow_run&status=success&head_sha=${SOURCE_SHA}&per_page=10" > build-runs.json
+
+            build_run_id="$(
+              python3 - <<'PY'
+              import json
+
+              with open("build-runs.json", encoding="utf-8") as file:
+                  runs = json.load(file).get("workflow_runs", [])
+
+              for run in runs:
+                  if run.get("conclusion") == "success":
+                      print(run["id"])
+                      break
+              PY
+            )"
+
+            if [ -n "${build_run_id}" ]; then
+              echo "build_run_id=${build_run_id}" >> "$GITHUB_OUTPUT"
+              echo "deploy_ref=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+              echo "expected_source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "No successful Build Image run found yet for ${SOURCE_SHA}; attempt ${attempt}/20."
+            sleep 30
+          done
+
+          echo "::error::No successful Build Image run found for ${SOURCE_SHA}. Wait for Build Image to finish, then rerun Deploy manually with its build_run_id."
+          exit 1
+
   deploy:
     runs-on: ubuntu-latest
-    needs: validate-deployment
+    needs:
+      - validate-deployment-secrets
+      - resolve-deployment
     steps:
       - name: Download built image artifact
         uses: actions/download-artifact@v4
         with:
           name: ${{ env.IMAGE_ARTIFACT_NAME }}
-          run-id: ${{ inputs.build_run_id }}
+          run-id: ${{ needs.resolve-deployment.outputs.build_run_id }}
           github-token: ${{ github.token }}
           path: .
 
       - name: Read image metadata
         id: metadata
         env:
-          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          BUILD_RUN_ID: ${{ needs.resolve-deployment.outputs.build_run_id }}
+          EXPECTED_SOURCE_SHA: ${{ needs.resolve-deployment.outputs.expected_source_sha }}
         run: |
           set -euo pipefail
 
@@ -98,9 +181,28 @@ jobs:
               )
               sys.exit(1)
 
+          expected_source_sha = os.environ["EXPECTED_SOURCE_SHA"]
+          if expected_source_sha and metadata["source_sha"] != expected_source_sha:
+              print(
+                  f"Artifact source_sha {metadata['source_sha']} does not match tag commit {expected_source_sha}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
           print(f"image_tag={metadata['image_tag']}")
           print(f"source_sha={metadata['source_sha']}")
           PY
+
+      - name: Write deployment summary
+        run: |
+          {
+            echo "## Deployment"
+            echo ""
+            echo "- Deploy ref: \`${{ needs.resolve-deployment.outputs.deploy_ref }}\`"
+            echo "- Build run ID: \`${{ needs.resolve-deployment.outputs.build_run_id }}\`"
+            echo "- Source SHA: \`${{ steps.metadata.outputs.source_sha }}\`"
+            echo "- Image tag: \`${{ steps.metadata.outputs.image_tag }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Transfer image to Server
         uses: appleboy/scp-action@v0.1.7
@@ -125,10 +227,11 @@ jobs:
             TAR_FILE="${{ env.TAR_FILE_NAME }}"
             NEW_VERSION_TAG="${{ steps.metadata.outputs.image_tag }}"
             SOURCE_SHA="${{ steps.metadata.outputs.source_sha }}"
+            DEPLOY_REF="${{ needs.resolve-deployment.outputs.deploy_ref }}"
 
             cd "${SERVICE_DIR}"
 
-            echo "Deploying version: ${NEW_VERSION_TAG} (${SOURCE_SHA})"
+            echo "Deploying ${DEPLOY_REF}: ${NEW_VERSION_TAG} (${SOURCE_SHA})"
 
             echo "Loading new image from ${TAR_FILE}..."
             docker load -i "${TAR_FILE}"
@@ -153,4 +256,4 @@ jobs:
             docker rmi "${IMAGE_NAME}:latest" || true
             docker image prune -f
 
-            echo "Deployment succeeded: ${NEW_VERSION_TAG} (${SOURCE_SHA})"
+            echo "Deployment succeeded for ${DEPLOY_REF}: ${NEW_VERSION_TAG} (${SOURCE_SHA})"

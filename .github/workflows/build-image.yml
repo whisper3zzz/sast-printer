@@ -80,3 +80,16 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Write build summary
+        run: |
+          {
+            echo "## Deploy image artifact"
+            echo ""
+            echo "- Artifact: \`${IMAGE_ARTIFACT_NAME}\`"
+            echo "- Build run ID: \`${{ github.run_id }}\`"
+            echo "- Source SHA: \`${{ steps.vars.outputs.sha }}\`"
+            echo "- Image tag: \`${{ steps.vars.outputs.sha_short }}\`"
+            echo ""
+            echo "Deploy manually with build run ID \`${{ github.run_id }}\`, or push a \`v*\` tag that points at this commit."
+          } >> "$GITHUB_STEP_SUMMARY"
