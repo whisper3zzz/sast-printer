@@ -99,7 +99,10 @@ docker compose logs -f goprint office-converter
 
 4. 字体与 WPS 配置
 
-当前 `office-converter` 镜像构建流程已自动注入字体与 `Office.conf`。请将需要的字体放入 `office_converter/assets/fonts` 下，可用的配置文件放入 `office_converter/assets/Office.conf`。由于文件太大，仓库无法提供这些文件。
+`office-converter` 镜像不再要求构建时存在字体或 `Office.conf`，因此 `docker compose up -d --build` 可以直接构建。若需要自定义字体或预接受 WPS 首次启动配置，可创建本地目录 `office_converter/assets/`，再在 `docker-compose.yml` 中打开示例挂载：
+
+- `./office_converter/assets/Office.conf:/app/Office.conf:ro`
+- `./office_converter/assets/fonts:/usr/local/share/fonts/custom:ro`
 
 如需排查转换环境，可执行以下可选检查命令：
 

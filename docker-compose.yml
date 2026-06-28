@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   goprint:
     build: .
@@ -51,6 +49,9 @@ services:
       no_proxy: "127.0.0.1,localhost,office-converter,goprint"
     volumes:
       - office-output:/tmp/office-output
+      # Optional runtime assets:
+      # - ./office_converter/assets/Office.conf:/app/Office.conf:ro
+      # - ./office_converter/assets/fonts:/usr/local/share/fonts/custom:ro
 
 volumes:
   office-output:
