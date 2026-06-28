@@ -3,6 +3,7 @@ package api
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -28,7 +29,7 @@ var ipRateLimiter = struct {
 	items: map[string]*ipRateState{},
 }
 
-// IPRateLimit 限制单IP请求频率：超过5QPS后封禁60秒。
+// IPRateLimit limits each IP to ipMaxQPS requests per ipWindowDuration.
 func IPRateLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		now := time.Now()
@@ -36,8 +37,7 @@ func IPRateLimit() gin.HandlerFunc {
 
 		blocked, shouldBlockNow := checkAndUpdateIPRate(ip, now)
 		if blocked || shouldBlockNow {
-			// 需求固定60秒重试等待。
-			c.Header("Retry-After", "60")
+			c.Header("Retry-After", strconv.Itoa(int(ipBlockDuration.Seconds())))
 			if shouldBlockNow {
 				log.Printf("[ratelimit] block ip=%s reason=qps_exceeded threshold=%d window=%s", ip, ipMaxQPS, ipWindowDuration)
 			} else {
