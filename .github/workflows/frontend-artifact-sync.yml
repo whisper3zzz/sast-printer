@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 env:
   FRONTEND_REPOSITORY: NJUPT-SAST/sast-printer-next-frontend
@@ -42,6 +43,15 @@ jobs:
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
 
+      - name: Create sync branch
+        id: branch
+        run: |
+          set -euo pipefail
+
+          branch="chore/sync-frontend-${{ steps.payload.outputs.run_id }}"
+          git switch -c "$branch"
+          echo "name=$branch" >> "$GITHUB_OUTPUT"
+
       - name: Download frontend artifact
         uses: actions/download-artifact@v4
         with:
@@ -58,7 +68,13 @@ jobs:
           find public -mindepth 1 -maxdepth 1 -exec rm -rf {} +
           cp -a frontend-dist/. public/
 
-      - name: Commit and push changes
+      - name: Commit and open pull request
+        env:
+          ARTIFACT_NAME: ${{ steps.payload.outputs.artifact_name }}
+          BASE_BRANCH: ${{ github.ref_name }}
+          BRANCH_NAME: ${{ steps.branch.outputs.name }}
+          FRONTEND_RUN_ID: ${{ steps.payload.outputs.run_id }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
         run: |
           set -euo pipefail
 
@@ -71,5 +87,43 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add public
-          git commit -m "chore(public): sync frontend assets from run ${{ steps.payload.outputs.run_id }}"
-          git push
+          git commit -m "chore(public): sync frontend assets from run ${FRONTEND_RUN_ID}"
+
+          git fetch origin "${BRANCH_NAME}:refs/remotes/origin/${BRANCH_NAME}" || true
+          git push --force-with-lease origin "HEAD:${BRANCH_NAME}"
+
+          body="$(mktemp)"
+          {
+            echo "## Summary"
+            echo ""
+            echo "- Sync frontend build artifact into \`public/\`."
+            echo "- Frontend repository: \`${FRONTEND_REPOSITORY}\`"
+            echo "- Frontend run ID: \`${FRONTEND_RUN_ID}\`"
+            echo "- Artifact: \`${ARTIFACT_NAME}\`"
+            echo ""
+            echo "This PR was created by the frontend artifact sync workflow."
+          } > "$body"
+
+          existing_pr="$(
+            gh pr list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --head "${BRANCH_NAME}" \
+              --state open \
+              --json number \
+              --jq '.[0].number // ""'
+          )"
+
+          if [ -n "${existing_pr}" ]; then
+            gh pr edit "${existing_pr}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "chore(public): sync frontend assets from run ${FRONTEND_RUN_ID}" \
+              --body-file "$body"
+            echo "Updated frontend asset sync PR #${existing_pr}."
+          else
+            gh pr create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base "${BASE_BRANCH}" \
+              --head "${BRANCH_NAME}" \
+              --title "chore(public): sync frontend assets from run ${FRONTEND_RUN_ID}" \
+              --body-file "$body"
+          fi
